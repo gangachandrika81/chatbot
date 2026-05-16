@@ -7,7 +7,7 @@ from langchain_groq import ChatGroq
 
 from langchain_core.messages import (
     HumanMessage,
-    AIMessage
+   AIMessage
 )
 
 from langchain_core.prompts import ChatPromptTemplate
@@ -61,6 +61,7 @@ with st.sidebar:
 
     st.markdown("---")
 
+    st.write("✅ Streaming Responses")
     st.write("✅ Normal Chat Supported")
     st.write("✅ RAG Mode Supported")
     st.write("✅ Multiple PDFs")
@@ -90,35 +91,38 @@ if question:
 
         st.markdown(question)
 
-    # ---------------- LOADING ----------------
-    with st.spinner("Generating response..."):
+    try:
 
-        try:
+        # ---------------- LOAD MODEL ----------------
+        llm = ChatGroq(
+            groq_api_key=os.getenv("GROQ_API_KEY"),
+            model_name="llama-3.3-70b-versatile",
+            streaming=True
+        )
 
-            # ---------------- LOAD MODEL ----------------
-            llm = ChatGroq(
-                groq_api_key=os.getenv("GROQ_API_KEY"),
-                model_name="llama-3.3-70b-versatile"
-            )
+        # =================================================
+        # CREATE CHAT HISTORY
+        # =================================================
+        chat_history = []
 
-            # =================================================
-            # CREATE CHAT HISTORY
-            # =================================================
-            chat_history = []
+        for msg in st.session_state.messages:
 
-            for msg in st.session_state.messages:
+            if msg["role"] == "user":
 
-                if msg["role"] == "user":
+                chat_history.append(
+                    HumanMessage(content=msg["content"])
+                )
 
-                    chat_history.append(
-                        HumanMessage(content=msg["content"])
-                    )
+            else:
 
-                else:
+                chat_history.append(
+                    AIMessage(content=msg["content"])
+                )
 
-                    chat_history.append(
-                        AIMessage(content=msg["content"])
-                    )
+        # =================================================
+        # ASSISTANT MESSAGE BOX
+        # =================================================
+        with st.chat_message("assistant"):
 
             # =================================================
             # RAG MODE
@@ -161,8 +165,8 @@ if question:
 
                 # Split documents
                 splitter = RecursiveCharacterTextSplitter(
-                    chunk_size=1000,
-                    chunk_overlap=200
+                    chunk_size=500,
+                    chunk_overlap=100,
                 )
 
                 documents = splitter.split_documents(
@@ -224,33 +228,36 @@ if question:
                     | StrOutputParser()
                 )
 
-                # Generate response
-                response = chain.invoke({
+                # STREAMING RESPONSE
+                stream = chain.stream({
                     "history": str(chat_history),
                     "context": context,
                     "question": question
                 })
+
+                # Display streaming text
+                response = st.write_stream(stream)
 
             # =================================================
             # NORMAL CHAT MODE
             # =================================================
             else:
 
-                response = llm.invoke(
-                    chat_history
-                ).content
+                # Stream directly from model
+                stream = llm.stream(chat_history)
 
-            # ---------------- SAVE RESPONSE ----------------
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": response
-            })
+                # Display streaming text
+                response = st.write_stream(
+                    chunk.content
+                    for chunk in stream
+                )
 
-            # ---------------- DISPLAY RESPONSE ----------------
-            with st.chat_message("assistant"):
+        # ---------------- SAVE RESPONSE ----------------
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": response
+        })
 
-                st.markdown(response)
+    except Exception as e:
 
-        except Exception as e:
-
-            st.error(f"Error: {e}")
+        st.error(f"Error: {e}")
